@@ -72,7 +72,8 @@ function isUnreadable(tok: string): boolean {
 
 // Ký hiệu Việt viết tắt: P=Pháo, M=Mã, X=Xe, T=Tượng, S=Sĩ, B=Tốt, Tg=Tướng;
 // "." = tiến, "/" = thoái, "-" hoặc "=" = bình. Ví dụ: P8-5, M2.3, T1/3.
-const COMPACT = /^(Tg|[PMXTSBK])([1-9])([./\-=])([1-9])$/i;
+// Quân + (t=trước | s=sau | g=giữa | số cột) + hành động + đích. Ví dụ: Pt-3, Xs.2, M2.3, Tg5-4.
+const COMPACT = /^(Tg|[PMXTSBK])(?:([tsg])|([1-9]))([./\-=])([1-9])$/i;
 const C_PIECE: Record<string, string> = { p: '炮', m: '马', x: '车', t: '相', s: '仕', b: '兵', tg: '帅', k: '帅' };
 const C_ACT: Record<string, string> = { '.': '进', '/': '退', '-': '平', '=': '平' };
 
@@ -88,17 +89,24 @@ function findCompact(g: Game, tok: string): Move | undefined {
   const m = tok.match(COMPACT);
   if (!m) return undefined;
   const piece = C_PIECE[m[1].toLowerCase()];
-  const file = Number(m[2]);
-  const act = C_ACT[m[3]];
-  const dest = m[4];
-  const base = canon(`${piece}${file}${act}${dest}`);
+  const pos = m[2] ? { t: '前', s: '后', g: '中' }[m[2].toLowerCase() as 't' | 's' | 'g'] : '';
+  const file = m[3] ? Number(m[3]) : 0;
+  const act = C_ACT[m[4]];
+  const dest = m[5];
   const legal = g.legalMoves();
-  const exact = legal.find((mv) => canon(toChineseNotation(g.position, mv)) === base);
+  const note = (mv: Move) => canon(toChineseNotation(g.position, mv));
+  if (pos) {
+    // Hai quân cùng cột: thư viện viết "前炮平三" (trước) hoặc "后炮平三" (sau).
+    const want = canon(`${pos}${piece}${act}${dest}`);
+    return legal.find((mv) => note(mv) === want);
+  }
+  const base = canon(`${piece}${file}${act}${dest}`);
+  const exact = legal.find((mv) => note(mv) === base);
   if (exact) return exact;
-  // Hai quân cùng cột: thư viện viết "前炮平五". Khớp theo quân, hành động, đích và cột xuất phát.
+  // Có ghi cột nhưng thư viện viết kiểu 前/后: khớp theo quân, hành động, đích và cột xuất phát.
   const want = canon(`${piece}${act}${dest}`);
   const cands = legal.filter((mv) => {
-    const n = canon(toChineseNotation(g.position, mv)).replace(/^[前中后]/, '');
+    const n = note(mv).replace(/^[前中后]/, '');
     const p = g.board[mv.from.rank][mv.from.file];
     if (!p) return false;
     const f = p.color === 'w' ? 9 - mv.from.file : mv.from.file + 1;

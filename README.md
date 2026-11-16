@@ -85,4 +85,4 @@ Mã nguồn dự án: **AGPL-3.0-or-later** (xem `LICENSE`), vì dùng `pikafish
 
 ### Ký hiệu viết tắt tiếng Việt khi nhập ván
 
-P=Pháo, M=Mã, X=Xe, T=Tượng, S=Sĩ, B=Tốt, Tg=Tướng; `.` = tiến, `/` = thoái, `-` hoặc `=` = bình. Ví dụ: `P8-5`, `M2.3`, `T1/3`. Nước gõ nhầm sẽ được báo đúng số thứ tự nước.
+P=Pháo, M=Mã, X=Xe, T=Tượng, S=Sĩ, B=Tốt, Tg=Tướng; `.` = tiến, `/` = thoái, `-` hoặc `=` = bình. Ví dụ: `P8-5`, `M2.3`, `T1/3`. Hai quân cùng loại nằm cùng cột: `t` = trước, `s` = sau, `g` = giữa, thay cho số cột (ví dụ `Pt-3` = Pháo trước bình 3, `Xs.2` = Xe sau tiến 2). Nước gõ nhầm sẽ được báo đúng số thứ tự nước.
