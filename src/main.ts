@@ -387,7 +387,7 @@ function viewReview(eng: string): string {
 }
 
 function viewImport(): string {
-  const res = impParsed ? `<p class="small">${impParsed.moves.length ? `Đã đọc <b>${impParsed.moves.length}</b> nước (${impParsed.kind === 'ucci' ? 'tọa độ' : 'ký hiệu'}).` : ''} ${impParsed.error ? `<span class="q-mistake">${esc(impParsed.error)}</span>` : ''}</p>` : '';
+  const res = impParsed ? `<p class="small">${impParsed.moves.length ? `Đã đọc <b>${impParsed.moves.length}</b> nước (${impParsed.kind === 'ucci' ? 'tọa độ' : 'ký hiệu'}).` : ''} ${impParsed.error ? `<span class="q-mistake">${esc(impParsed.error)}</span>` : ''}</p>${impParsed.fixes ? `<p class="small muted">Đã tự sửa lỗi gõ: ${impParsed.fixes.map(esc).join('; ')}. Hãy kiểm tra lại.</p>` : ''}` : '';
   return `<div class="card"><h2>Nhập ván</h2><p class="small muted">Dán bản ghi ván từ xiangqi.com hoặc nơi khác: tọa độ (h2e2 h9g7 …), ký hiệu Trung (炮二平五), tiếng Việt (Pháo 2 bình 5) hoặc WXF (C2=5). Có thể kèm dòng FEN.</p>
   <textarea class="imp" id="imptext" placeholder="1. 炮二平五 马8进7 2. 马二进三 …">${esc(impText)}</textarea>
   <div class="ctl"><label class="f">Bạn cầm<select data-act="iside"><option value="red" ${impSide === 'red' ? 'selected' : ''}>Đỏ</option><option value="black" ${impSide === 'black' ? 'selected' : ''}>Đen</option></select></label>

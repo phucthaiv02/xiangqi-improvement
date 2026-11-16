@@ -2,7 +2,7 @@ import { Game, START_FEN, moveToUcci, parseFen, type Move } from '@pikafish-js/r
 import { canon, extractHanMoves } from './notation';
 import { toChineseNotation } from '@pikafish-js/rules';
 
-export interface Parsed { fen0: string | null; moves: string[]; error?: string; kind: 'ucci' | 'han' | 'viet' | 'none' }
+export interface Parsed { fen0: string | null; moves: string[]; error?: string; fixes?: string[]; kind: 'ucci' | 'han' | 'viet' | 'none' }
 
 const RE_FEN = /([rnbakcpRNBAKCP1-9]+\/){9}[rnbakcpRNBAKCP1-9]+\s+[wbrWBR]\b[^\n"\]]*/;
 const RE_UCCI = /(?<![a-z0-9])([a-i])\s?(\d)\s?[-x:]?\s?([a-i])\s?(\d)(?![a-z0-9])/gi;
@@ -42,27 +42,32 @@ export function parseGameText(text: string): Parsed {
   cands.sort((x, y) => y.r.moves.length - x.r.moves.length);
   const best = cands[0];
   if (!best || !best.r.moves.length && !best.r.error) return { fen0, moves: [], kind: 'none', error: 'Không nhận ra nước đi nào. Hỗ trợ: h2e2, 炮二平五, Pháo 2 bình 5, C2=5, P8-5 (Pháo 8 bình 5).' };
-  return { fen0, moves: best.r.moves, error: best.r.error, kind: best.kind };
+  return { fen0, moves: best.r.moves, error: best.r.error, fixes: best.r.fixes, kind: best.kind };
 }
 
-interface Run { moves: string[]; error?: string }
+interface Run { moves: string[]; error?: string; fixes?: string[] }
 function run(fen: string, toks: string[], find: (g: Game, tok: string) => Move | undefined): Run {
   const g = new Game(fen);
   const moves: string[] = [];
+  const fixes: string[] = [];
   let error: string | undefined;
   for (let i = 0; i < toks.length; i++) {
-    const m = find(g, toks[i]);
-    if (!m) {
-      const unreadable = toks === undefined ? false : /^[A-Za-z]{1,2}\S*$/.test(toks[i]) && !/^(Tg|[PMXTSBK])[1-9][./\-=][1-9]$/i.test(toks[i]) && !/^[a-i]\d[a-i]\d$/i.test(toks[i]);
-      error = unreadable
-        ? `Nước thứ ${i + 1} "${toks[i]}" không đọc được (có gõ nhầm không?), đã dừng tại đó.`
-        : `Nước thứ ${i + 1} "${toks[i]}" không hợp lệ ở thế này, đã dừng tại đó.`;
-      break;
-    }
+    let m = find(g, toks[i]);
+    if (!m && isUnreadable(toks[i])) {
+      // Gõ nhầm một ký tự (ví dụ "Mt/6" thay vì "M5/6"): chỉ tự sửa khi có đúng một nước hợp lệ.
+      const alt = candidates(g, toks[i], find);
+      if (alt.length === 1) { m = find(g, alt[0]); fixes.push(`Nước thứ ${i + 1}: "${toks[i]}" → "${alt[0]}"`); }
+      else error = `Nước thứ ${i + 1} "${toks[i]}" không đọc được${alt.length ? `. Có phải ${alt.slice(0, 4).join(' hoặc ')}?` : ' (có gõ nhầm không?)'}, đã dừng tại đó.`;
+    } else if (!m) error = `Nước thứ ${i + 1} "${toks[i]}" không hợp lệ ở thế này, đã dừng tại đó.`;
+    if (!m) break;
     g.move(m);
     moves.push(moveToUcci(m));
   }
-  return { moves, error };
+  return { moves, error, fixes: fixes.length ? fixes : undefined };
+}
+
+function isUnreadable(tok: string): boolean {
+  return /^[A-Za-z]{1,2}\S*$/.test(tok) && !COMPACT.test(tok) && !/^[a-i]\d[a-i]\d$/i.test(tok);
 }
 
 // Ký hiệu Việt viết tắt: P=Pháo, M=Mã, X=Xe, T=Tượng, S=Sĩ, B=Tốt, Tg=Tướng;
@@ -100,4 +105,16 @@ function findCompact(g: Game, tok: string): Move | undefined {
     return f === file && n.replace(/^[2-5]/, '') === want;
   });
   return cands.length === 1 ? cands[0] : undefined;
+}
+
+/** Thử sửa một ký tự gõ nhầm; chỉ trả về những nước hợp lệ ở thế hiện tại. */
+function candidates(g: Game, tok: string, find: (g: Game, tok: string) => Move | undefined): string[] {
+  const out = new Set<string>();
+  for (let j = 0; j < tok.length; j++) {
+    for (const c of '123456789./-=') {
+      const cand = tok.slice(0, j) + c + tok.slice(j + 1);
+      if (cand !== tok && COMPACT.test(cand) && find(g, cand)) out.add(cand);
+    }
+  }
+  return [...out];
 }
