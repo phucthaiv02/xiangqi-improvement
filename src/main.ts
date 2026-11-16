@@ -435,7 +435,14 @@ function spark(vals: { date: string; v: number }[]): string {
 
 function viewProgress(): string {
   const g = S.games, n = g.length, w = g.filter((x) => x.result === 'win').length, d = g.filter((x) => x.result === 'draw').length;
-  const metric = (key: 'puzzle' | 'elo', label: string) => `<div class="card"><h2>${label}</h2>${spark(S.metrics[key])}
+  // Tỉ lệ đúng theo ngày được tự tính từ lịch sử giải ở tab Luyện tập (bài xem đáp án không tính).
+  const autoPuzzle = (() => {
+    const byDay = new Map<string, { ok: number; n: number }>();
+    for (const a of S.attempts) { if (a.shown) continue; const e = byDay.get(a.date) ?? { ok: 0, n: 0 }; e.n++; if (a.ok) e.ok++; byDay.set(a.date, e); }
+    return [...byDay].map(([date, e]) => ({ date, v: Math.round((e.ok / e.n) * 100) }));
+  })();
+  const series = (key: 'puzzle' | 'elo') => key === 'puzzle' ? [...S.metrics.puzzle, ...autoPuzzle].sort((a, b) => a.date.localeCompare(b.date)) : S.metrics.elo;
+  const metric = (key: 'puzzle' | 'elo', label: string) => `<div class="card"><h2>${label}</h2>${key === 'puzzle' ? '<p class="small muted">Tự tính từ các bài đã giải ở tab Luyện tập; bạn vẫn có thể ghi thêm số đo ngoài app.</p>' : ''}${spark(series(key))}
     <form class="grid" data-form="metric" data-key="${key}"><label class="f">Ngày<input type="date" name="date" value="${todayStr()}"></label><label class="f">Giá trị<input type="number" name="v" required step="any"></label><button class="btn">Ghi</button></form></div>`;
   const games = g.map((x) => `<div class="row"><div class="main"><span class="pill ${x.result}">${{ win: 'Thắng', loss: 'Thua', draw: 'Hòa' }[x.result]}</span> <span class="meta">${fmt(x.date)} · cầm ${x.side === 'red' ? 'Đỏ' : 'Đen'}</span><div class="small">${esc(x.note)}</div></div><div class="acts"><button class="btn ghost sm" data-act="rev" data-id="${x.id}">Xem lại</button><button class="btn plain sm" data-act="delgame" data-id="${x.id}">Xóa</button></div></div>`).join('');
   const fin = FINAL.map((t, i) => `<li class="task ${S.finalTest[i] ? 'done' : ''}"><label><input type="checkbox" data-act="final" data-i="${i}" ${S.finalTest[i] ? 'checked' : ''}><span>${esc(t)}</span></label></li>`).join('');
