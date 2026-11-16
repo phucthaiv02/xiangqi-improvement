@@ -6,8 +6,11 @@ import { getEngine, evalPosition, LEVELS, engineLabel, fmtScore, cpOf, type PosE
 import { boardSvg } from './board';
 import { vietnamese } from './notation';
 import { parseGameText } from './importer';
+import { playOut } from './puzzles';
+import { ENDGAMES } from './endgames';
+import { initPractice, viewPractice, practiceAct, practiceChange, practiceBoardClick, practiceLeave, practiceStatsHtml, addGamePuzzles } from './practice';
 
-type Tab = 'today' | 'board' | 'plan' | 'errors' | 'progress';
+type Tab = 'today' | 'board' | 'practice' | 'plan' | 'errors' | 'progress';
 type Sub = 'play' | 'review' | 'import';
 
 let S: State = load();
@@ -191,6 +194,19 @@ function addIssuesToLog() {
   render();
 }
 
+async function makePuzzles() {
+  const r = review; if (!r || r.busy) return;
+  const items = issues(r).filter((i) => i.mine && i.loss >= 150).slice(0, 8)
+    .map((i) => ({ fen: r.fens[i.ply], ply: i.ply, note: `Nước ${i.ply + 1} (${r.notes[i.ply]}) mất ${i.loss} cp` }));
+  if (!items.length) { toast = 'Chưa có lỗi ≥150 cp của bạn. Hãy bấm "Phân tích cả ván" trước.'; render(); return; }
+  r.busy = true; render();
+  try {
+    const n = await addGamePuzzles(items, r.gameId, (m) => { r.progress = m; updateProg(); });
+    toast = n ? `Đã tạo ${n} bài luyện tập — xem ở tab Luyện tập.` : 'Không có bài mới (các thế này đã có trong kho).';
+  } catch (e) { toast = e instanceof Error ? e.message : String(e); }
+  finally { r.busy = false; render(); }
+}
+
 /* ---------------- Import state ---------------- */
 let impText = '', impSide: 'red' | 'black' = 'red', impResult: 'win' | 'loss' | 'draw' = 'loss', impInfo = '';
 let impParsed: ReturnType<typeof parseGameText> | null = null;
@@ -304,7 +320,8 @@ function viewReview(eng: string): string {
   return `<div class="card"><div class="ctl">
     <label class="f">Bạn cầm<select data-act="rside"><option value="red" ${r.side === 'red' ? 'selected' : ''}>Đỏ</option><option value="black" ${r.side === 'black' ? 'selected' : ''}>Đen</option></select></label>
     <button class="btn" data-act="analyze" ${r.busy || engStatus !== 'ready' ? 'disabled' : ''}>Phân tích cả ván</button>
-    <button class="btn ghost" data-act="tolog" ${is.length ? '' : 'disabled'}>Thêm lỗi vào sổ</button></div>
+    <button class="btn ghost" data-act="tolog" ${is.length ? '' : 'disabled'}>Thêm lỗi vào sổ</button>
+    <button class="btn ghost" data-act="mkpuz" ${is.length && !r.busy ? '' : 'disabled'}>Tạo bài luyện tập</button></div>
     <p>${eng}</p><div class="eng" id="prog">${esc(r.progress)}</div></div>
   <div class="bwrap"><div class="bcol">${svg}<div class="evalbar" title="Đánh giá (Đỏ ở bên trái)"><i style="width:${pct}%"></i></div>
     <div class="nav"><button class="btn ghost sm" data-act="goto" data-i="0">⏮</button><button class="btn ghost sm" data-act="goto" data-i="${Math.max(0, r.idx - 1)}">◀</button><button class="btn ghost sm" data-act="goto" data-i="${Math.min(r.mv.length, r.idx + 1)}">▶</button><button class="btn ghost sm" data-act="goto" data-i="${r.mv.length}">⏭</button>
@@ -369,13 +386,14 @@ function viewProgress(): string {
   return `<div class="tiles"><div class="tile"><div class="k">Ván</div><div class="v">${n}</div></div><div class="tile"><div class="k">Tỉ lệ thắng</div><div class="v">${n ? Math.round((w / n) * 100) : 0}<small>%</small></div></div><div class="tile"><div class="k">Hòa</div><div class="v">${d}</div></div></div>
   <div class="two">${metric('puzzle', 'Bài chiếu bí đúng (%)')}${metric('elo', 'Elo / điểm xếp hạng')}</div>
   <div class="card"><h2>Bài kiểm tra cuối khóa (tuần 12)</h2><ul class="tasks">${fin}</ul></div>
+  ${practiceStatsHtml()}
   <div class="card"><h2>Các ván</h2><div class="list">${games || '<p class="muted small">Chưa có ván nào. Chơi ở tab Bàn cờ hoặc nhập ván.</p>'}</div></div>
   <div class="card"><h2>Sao lưu</h2><p class="small muted">Dữ liệu lưu trong trình duyệt này. Xuất file JSON để chuyển sang máy khác.</p><div class="nav"><button class="btn ghost" data-act="export">Xuất JSON</button><label class="btn ghost" style="cursor:pointer">Nhập JSON<input type="file" accept="application/json" data-act="import" hidden></label><button class="btn plain" data-act="reset">Xóa tất cả</button></div></div>`;
 }
 
 function render() {
-  const tabs: [Tab, string][] = [['today', 'Hôm nay'], ['board', 'Bàn cờ'], ['plan', 'Kế hoạch'], ['errors', 'Sổ lỗi'], ['progress', 'Tiến độ']];
-  const body = { today: viewToday, board: viewBoard, plan: viewPlan, errors: viewErrors, progress: viewProgress }[tab]();
+  const tabs: [Tab, string][] = [['today', 'Hôm nay'], ['board', 'Bàn cờ'], ['practice', 'Luyện tập'], ['plan', 'Kế hoạch'], ['errors', 'Sổ lỗi'], ['progress', 'Tiến độ']];
+  const body = { today: viewToday, board: viewBoard, practice: viewPractice, plan: viewPlan, errors: viewErrors, progress: viewProgress }[tab]();
   app.innerHTML = `<header class="top"><div class="piece">帥</div><div><h1>Cờ tướng 12 tuần</h1><p class="sub">Giáo án, bàn cờ và phân tích bằng Pikafish</p></div></header>
   <nav class="tabs">${tabs.map(([k, l]) => `<button data-act="tab" data-tab="${k}" ${tab === k ? 'aria-current="page"' : ''}>${l}</button>`).join('')}</nav>${body}`;
 }
@@ -389,12 +407,13 @@ app.addEventListener('click', (ev) => {
   const t = ev.target as Element;
   const hit = t.closest('.hit') as SVGElement | null;
   if (hit && tab === 'board' && sub === 'play') { boardClick(Number(hit.dataset.f), Number(hit.dataset.r)); return; }
+  if (hit && tab === 'practice') { practiceBoardClick(Number(hit.dataset.f), Number(hit.dataset.r)); return; }
   const el = t.closest('[data-act]') as HTMLElement | null;
   if (!el) return;
   const a = el.dataset.act!;
   if (el.tagName === 'SELECT' || el.tagName === 'INPUT') return;
   switch (a) {
-    case 'tab': tab = el.dataset.tab as Tab; render(); break;
+    case 'tab': if (tab === 'practice' && el.dataset.tab !== 'practice') practiceLeave(); tab = el.dataset.tab as Tab; render(); break;
     case 'sub': sub = el.dataset.sub as Sub; render(); break;
     case 'pickday': viewDate = el.dataset.date!; render(); break;
     case 'timer': {
@@ -411,6 +430,7 @@ app.addEventListener('click', (ev) => {
     case 'goto': if (review) { review.idx = Number(el.dataset.i); render(); } break;
     case 'analyze': void analyzeAll(); break;
     case 'tolog': addIssuesToLog(); break;
+    case 'mkpuz': void makePuzzles(); break;
     case 'iparse': {
       impText = (document.getElementById('imptext') as HTMLTextAreaElement).value;
       impParsed = parseGameText(impText); render(); break;
@@ -425,6 +445,7 @@ app.addEventListener('click', (ev) => {
     case 'rev': { const e = S.games.find((x) => x.id === el.dataset.id); if (e) openReview(e); break; }
     case 'export': download(`xiangqi-backup-${todayStr()}.json`, exportJson(S)); break;
     case 'reset': if (confirm('Xóa toàn bộ dữ liệu trong trình duyệt này?')) { localStorage.clear(); S = load(); render(); } break;
+    default: practiceAct(a, el);
   }
 });
 
@@ -440,6 +461,7 @@ app.addEventListener('change', (ev) => {
     case 'rside': if (review) { review.side = el.value as 'red' | 'black'; render(); } break;
     case 'iside': impSide = el.value as 'red' | 'black'; break;
     case 'ires': impResult = el.value as 'win' | 'loss' | 'draw'; break;
+    case 'pf-level': case 'pf-source': case 'pf-week': case 'gentarget': case 'genwant': practiceChange(a, el); break;
     case 'import': {
       const f = (el as HTMLInputElement).files?.[0]; if (!f) break;
       f.text().then((txt) => { try { S = importJson(txt); persist(); toast = ''; render(); } catch (e) { alert(e instanceof Error ? e.message : 'Lỗi'); } });
@@ -463,4 +485,8 @@ app.addEventListener('submit', (ev) => {
 app.addEventListener('input', (ev) => { const el = ev.target as HTMLElement; if (el.id === 'imptext') impText = (el as HTMLTextAreaElement).value; });
 
 void moveToUcci; void cpOf;
+initPractice({ S: () => S, persist, render, esc, today: todayStr, weekIndex: () => progressInfo().week, ensureEngine, engLine: () => engMsg, engReady: () => engStatus === 'ready', isActive: () => tab === 'practice' });
 render();
+
+// Công cụ kiểm tra (chỉ bật khi thêm ?debug vào URL): chạy tàn cuộc tự đấu để xác định kết quả mong đợi.
+if (new URLSearchParams(location.search).has('debug')) (window as unknown as Record<string, unknown>).__xq = { playOut, ENDGAMES };

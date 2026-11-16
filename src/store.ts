@@ -4,6 +4,15 @@ export interface GameEntry {
   hang: boolean; note: string; mv: string; fen0?: string; acc?: number;
 }
 export interface Metric { date: string; v: number }
+export type Level5 = 1 | 2 | 3 | 4 | 5;
+/** Bài luyện tập. solution[0] là nước của người giải, solution[1] là nước đáp lại của máy, … */
+export interface Puzzle {
+  id: string; fen: string; solution: string[]; alts: string[];
+  source: 'game' | 'gen'; kind: 'mate' | 'tactic' | 'loss'; mateIn?: number;
+  gap: number; recDepth: number; score: number; level: Level5;
+  created: string; gameId?: string; ply?: number; note?: string;
+}
+export interface Attempt { pid: string; date: string; ok: boolean; secs: number; shown?: boolean }
 export interface State {
   start: string;
   checks: Record<string, boolean>;
@@ -11,6 +20,8 @@ export interface State {
   games: GameEntry[];
   metrics: { puzzle: Metric[]; elo: Metric[] };
   finalTest: Record<string, boolean>;
+  puzzles: Puzzle[];
+  attempts: Attempt[];
 }
 
 const KEY = 'xiangqi-improvement.v1';
@@ -21,7 +32,7 @@ export const addDays = (s: string, n: number) => { const d = parseYmd(s); d.setD
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
 function fresh(): State {
-  return { start: ymd(new Date()), checks: {}, errors: [], games: [], metrics: { puzzle: [], elo: [] }, finalTest: {} };
+  return { start: ymd(new Date()), checks: {}, errors: [], games: [], metrics: { puzzle: [], elo: [] }, finalTest: {}, puzzles: [], attempts: [] };
 }
 
 export function load(): State {
