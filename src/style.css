@@ -174,3 +174,16 @@ textarea.imp{min-height:140px;font-family:ui-monospace,Menlo,monospace;font-size
 }
 .q-ok{color:var(--good)}
 input[type="number"][data-act="gentarget"]{width:90px}
+
+/* Phân tích tự động, loại lỗi, kiểm tra đầu vào */
+.card.auto{border-color:var(--accent)}
+select.etype{font:600 12px var(--font);padding:2px 6px;border:1px solid var(--line);border-radius:99px;background:var(--tint);color:var(--accent);max-width:100%}
+.tbl{width:100%;border-collapse:collapse;font-size:14px;margin:6px 0 10px}
+.tbl th,.tbl td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+.tbl th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.steps{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.step{font-size:13px;padding:3px 10px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+.step.on{border-color:var(--accent);color:var(--accent);font-weight:600}
+.opts{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.opt{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.opt input{width:18px;height:18px;accent-color:var(--accent)}

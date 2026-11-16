@@ -63,9 +63,9 @@ export function fmtScore(info: AnalysisInfo | null | undefined): string {
 
 export interface PosEval { bestmove: string; cp: number; pv: string[]; depth: number }
 
-export async function evalPosition(fen: string, opts: { depth?: number; movetime?: number } = {}): Promise<PosEval> {
+export async function evalPosition(fen: string, opts: { depth?: number; movetime?: number; signal?: AbortSignal } = {}): Promise<PosEval> {
   const engine = await getEngine();
-  const h = await engine.analyze({ fen, depth: opts.depth ?? 12, movetime: opts.movetime ?? 700 });
+  const h = await engine.analyze({ fen, depth: opts.depth ?? 12, movetime: opts.movetime ?? 700, signal: opts.signal });
   const r = await h.result;
   return { bestmove: r.bestmove, cp: cpOf(r.lastInfo), pv: r.lastInfo?.pv ?? [], depth: r.lastInfo?.depth ?? 0 };
 }

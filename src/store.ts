@@ -1,4 +1,4 @@
-export interface ErrorEntry { id: string; date: string; type: string; note: string; fen?: string }
+export interface ErrorEntry { id: string; date: string; type: string; note: string; fen?: string; auto?: boolean }
 export interface GameEntry {
   id: string; date: string; side: 'red' | 'black'; result: 'win' | 'loss' | 'draw';
   hang: boolean; note: string; mv: string; fen0?: string; acc?: number;
@@ -13,6 +13,23 @@ export interface Puzzle {
   created: string; gameId?: string; ply?: number; note?: string;
 }
 export interface Attempt { pid: string; date: string; ok: boolean; secs: number; shown?: boolean }
+/* ---- Kiểm tra đầu vào / cuối khóa ---- */
+export interface PItem { pid: string; fen: string; solution: string[]; alts: string[]; level: Level5; kind: Puzzle['kind']; mateIn?: number }
+export interface PItemResult { ok: boolean; secs: number; timeout?: boolean; skipped?: boolean }
+export interface PGame { level: number; side: 'red' | 'black'; result: 'win' | 'loss' | 'draw'; plies: number; mv: string; reason: string }
+export interface PSurvey { opening: number; endgame: number; calc: number; safety: number; time: number }
+export interface PlacementDraft {
+  id: string; kind: 'start' | 'final'; started: string; t0: number; phase: 'puzzles' | 'games' | 'survey';
+  items: PItem[]; results: PItemResult[]; games: PGame[]; skippedGames: boolean; survey: Partial<PSurvey>;
+}
+export interface Domain { key: string; label: string; score: number | null; self?: boolean }
+export interface PlacementRun {
+  id: string; kind: 'start' | 'final'; date: string; secs: number;
+  items: PItem[]; results: PItemResult[]; games: PGame[]; survey: PSurvey | null;
+  puzzlePct: number; ability: Level5; est: number | null; domains: Domain[];
+  startWeek: number; startLevel: Level5;
+}
+
 export interface State {
   start: string;
   checks: Record<string, boolean>;
@@ -22,6 +39,8 @@ export interface State {
   finalTest: Record<string, boolean>;
   puzzles: Puzzle[];
   attempts: Attempt[];
+  placement: PlacementRun[];
+  placementDraft: PlacementDraft | null;
 }
 
 const KEY = 'xiangqi-improvement.v1';
@@ -32,7 +51,7 @@ export const addDays = (s: string, n: number) => { const d = parseYmd(s); d.setD
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
 function fresh(): State {
-  return { start: ymd(new Date()), checks: {}, errors: [], games: [], metrics: { puzzle: [], elo: [] }, finalTest: {}, puzzles: [], attempts: [] };
+  return { start: ymd(new Date()), checks: {}, errors: [], games: [], metrics: { puzzle: [], elo: [] }, finalTest: {}, puzzles: [], attempts: [], placement: [], placementDraft: null };
 }
 
 export function load(): State {

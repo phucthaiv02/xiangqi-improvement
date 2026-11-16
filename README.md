@@ -9,6 +9,8 @@ Không có engine hay luật cờ tự viết: luật/FEN/ký hiệu dùng [`@pi
 - **Chơi với máy** (6 mức độ), gợi ý nước đi, đi lại, xoay bàn; ván kết thúc tự lưu.
 - **Nhập ván**: tọa độ (`h2e2`), ký hiệu Trung (`炮二平五`), tiếng Việt (`Pháo 2 bình 5`), WXF (`C2=5`), có thể kèm FEN.
 - **Xem lại & phân tích**: Pikafish đánh giá từng thế, đánh dấu `?!` / `?` / `??` theo số centipawn mất, thêm lỗi của bạn vào sổ lỗi.
+- **Tự phân tích khi ván kết thúc**: ván chơi với máy xong là Pikafish tự phân tích nền (có tiến độ và nút Hủy), rồi tự thêm lỗi (mất ≥ 150 cp) vào sổ lỗi. Khi máy phải nghĩ nước ở ván mới thì phân tích tạm dừng (engine chỉ chạy một việc một lúc), bấm **Tiếp tục** để chạy nốt.
+- **Tự gán loại lỗi** (sửa tay được ở Sổ lỗi): *Bỏ quân treo* khi nước đáp tốt nhất của engine ăn một quân có lời của bạn (quân đó không được bảo vệ, hoặc giá trị lớn hơn quân đi ăn), kèm ghi chú quân đó đã bị đe dọa từ trước hay do nước đi vừa rồi; *Bỏ lỡ chiến thuật* khi nước tốt nhất của engine chiếu bí hoặc ăn quân có lời mà bạn bỏ qua; các lỗi còn lại xếp theo giai đoạn Khai cuộc (10 nước đầu), Tàn cuộc (≤ 12 quân), Trung cuộc. Lời/lỗ là ước lượng đơn giản (Xe 9, Pháo 4,5, Mã 4, Sĩ/Tượng 2, Tốt 1 hoặc 2 khi qua sông) dựa trên `isAttacked` của `@pikafish-js/rules`, không phải trao đổi quân đầy đủ. Các loại *Hết giờ* và *Khác* vẫn do bạn tự chọn.
 - **Luyện tập** (tab riêng): giải bài từ ván của bạn và bài tự sinh, thư viện tàn cuộc, bộ sinh bài; mô tả bên dưới.
 - Sao lưu/khôi phục bằng file JSON (gồm cả kho bài và lịch sử giải). Dữ liệu lưu trong `localStorage` của trình duyệt (chưa đồng bộ giữa các thiết bị).
 
@@ -42,6 +44,17 @@ Tổng điểm → bậc: <1,25 → 1 *Rất dễ* · <2,25 → 2 *Dễ* · <3,5
 
 **Hiệu chỉnh theo kết quả thực**: sau ≥3 lần giải, bài sai ≥60% được tăng một bậc, bài đúng 100% giảm một bậc. **Bài gợi ý** chọn bậc sao cho tỉ lệ đúng trong 10 lần giải gần nhất khoảng 70–80% (đúng >80% thì lên bậc, <70% thì xuống; chưa đủ dữ liệu thì chọn theo tuần hiện tại). Thống kê theo bậc, theo nguồn và tàn cuộc nằm ở tab **Tiến độ**.
 
+## Kiểm tra đầu vào và cuối khóa
+
+Tab **Kiểm tra** (hoặc thẻ ở Hôm nay / Tiến độ) làm một lần trước khi bắt đầu giáo án (tuần 0) và lặp lại ở tuần 12 với cùng định dạng:
+
+1. **20 bài** chiến thuật/chiếu bí, 4 bài mỗi bậc (rải đều 5 bậc), lấy từ kho bài, ưu tiên bài tự sinh đã xác minh ở độ sâu 18 và chưa dùng ở lần trước. Kho thiếu thì bấm **Sinh thêm bài còn thiếu** (có thể dừng); bậc vẫn thiếu sẽ lấy bài từ bậc gần nhất; cần ít nhất 10 bài để bắt đầu. Mỗi bài chỉ một lần thử và có giới hạn thời gian theo bậc (60/90/120/150/180 giây); bấm giờ từng bài và cả buổi.
+2. **Thi đấu thích nghi với Pikafish**, tối đa 3 ván (Đỏ, Đen, Đỏ): ván 1 ở mức Trung bình, thắng thì lên một mức, thua thì xuống một mức. Điểm thi đấu = trung bình có trọng số (ván sau nặng hơn) của điểm quy ước của mức đã đánh (700 / 1000 / 1300 / 1600 / 1900 / 2200) cộng 150 nếu thắng, trừ 150 nếu thua. Đây là **thang quy ước của app, không phải Elo chính thức**. Có thể bỏ qua phần này.
+3. **Bảng tự đánh giá** 5 câu (khai cuộc, tàn cuộc, tính toán, kiểm tra an toàn, quản lý thời gian), thang 1–5.
+4. **Báo cáo**: bậc chiến thuật ước lượng (tổng tỉ lệ đúng của 5 bậc, làm tròn), điểm theo mảng 0–100 (chiếu bí, chiến thuật, tính toán, tốc độ giải, thi đấu; khai cuộc/tàn cuộc/an toàn/thời gian chỉ là tự đánh giá), điểm mạnh yếu kèm tuần nên ôn, gợi ý tuần và bậc bài bắt đầu (nút **Đặt tuần hiện tại** dời ngày bắt đầu cho khớp). Kết quả tự ghi vào hai biểu đồ ở Tiến độ (bài đúng %, điểm thi đấu). Làm bài cuối khóa xong, Tiến độ có bảng so sánh đầu vào và cuối khóa. Có thể làm lại nhiều lần, lịch sử được giữ. Dữ liệu nằm trong file sao lưu JSON.
+
+Bài đang làm dở được lưu, tải lại trang vẫn tiếp tục được (bài đang giải dở sẽ tính giờ lại từ đầu; ván đang đánh dở phải bắt đầu lại).
+
 ## Chạy trên máy
 ```bash
 npm ci
@@ -57,6 +70,9 @@ Engine (~41 MB gồm 2 mạng NNUE) **không** nằm trong git; `scripts/fetch-e
 `vercel.json` gửi các header `Cross-Origin-Opener-Policy: same-origin` và `Cross-Origin-Embedder-Policy: require-corp` — bắt buộc để WASM đa luồng (`SharedArrayBuffer`) chạy được. Không tải gì từ domain khác.
 
 ## Giới hạn
+
+- Loại lỗi tự gán dựa trên đánh giá engine ở độ sâu 12 trong 0,6 giây mỗi thế và phép tính lời/lỗ đơn giản, nên có thể gán nhầm; hãy sửa tay khi cần.
+- Điểm kiểm tra đầu vào có sai số lớn (20 bài và tối đa 3 ván), chỉ nên dùng làm mốc so sánh, không phải xếp hạng.
 - Bộ sinh bài tạo nhiều bài bậc 1–3; bậc 4 xuất hiện khá ít và bậc 5 rất hiếm (cần ván tự đấu chất lượng cao hơn). Thang điểm độ khó là ước lượng, nên có bước hiệu chỉnh theo kết quả giải của bạn.
 - Bộ chấm "thí quân" chỉ kiểm tra quân đi tới ô bị đối phương tấn công và đắt hơn quân bị ăn, nên là xấp xỉ.
 - Cần trình duyệt có WebAssembly (Chrome/Edge/Firefox/Safari mới). Lần đầu tải mạng NNUE ~25 MB, sau đó được cache.

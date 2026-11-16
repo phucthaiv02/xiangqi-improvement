@@ -6,11 +6,13 @@ import { getEngine, evalPosition, LEVELS, engineLabel, fmtScore, cpOf, type PosE
 import { boardSvg } from './board';
 import { vietnamese } from './notation';
 import { parseGameText } from './importer';
-import { playOut } from './puzzles';
+import { playOut, isAbort } from './puzzles';
+import { classifyError } from './tactics';
+import { initPlacement, viewPlacement, placementAct, placementChange, placementBoardClick, placementLeave, placementCardHtml, placementCompareHtml, placementBegin } from './placement';
 import { ENDGAMES } from './endgames';
 import { initPractice, viewPractice, practiceAct, practiceChange, practiceBoardClick, practiceLeave, practiceStatsHtml, addGamePuzzles } from './practice';
 
-type Tab = 'today' | 'board' | 'practice' | 'plan' | 'errors' | 'progress';
+type Tab = 'today' | 'board' | 'practice' | 'placement' | 'plan' | 'errors' | 'progress';
 type Sub = 'play' | 'review' | 'import';
 
 let S: State = load();
@@ -53,6 +55,7 @@ function checkKing(g: Game): Square | null { return g.status().inCheck ? kingSqu
 async function engineTurn() {
   const p = play;
   if (p.game.status().over || p.game.turn === p.side || p.thinking) return;
+  abortAuto();
   p.thinking = true; render();
   try {
     const eng = await getEngine();
@@ -75,8 +78,11 @@ function afterMove() {
     play.saved = true;
     const mine: Record<string, 'win' | 'loss' | 'draw'> = { red: play.side === 'w' ? 'win' : 'loss', black: play.side === 'b' ? 'win' : 'loss', draw: 'draw' };
     const r = st.result ? mine[st.result] : 'draw';
-    S.games.unshift({ id: uid(), date: todayStr(), side: play.side === 'w' ? 'red' : 'black', result: r, hang: false, note: `Chơi với Pikafish · ${LEVELS[play.level].name} (${st.reason ?? ''})`, mv: play.game.history.map((x) => x.ucci).join(' ') });
+    const gid = uid(), side = play.side === 'w' ? 'red' : 'black';
+    const mvs = play.game.history.map((x) => x.ucci);
+    S.games.unshift({ id: gid, date: todayStr(), side, result: r, hang: false, note: `Chơi với Pikafish · ${LEVELS[play.level].name} (${st.reason ?? ''})`, mv: mvs.join(' ') });
     persist();
+    startAuto(gid, mvs, side);
   }
 }
 
@@ -172,26 +178,75 @@ function issues(r: Review): Issue[] {
   }
   return out;
 }
-function guessType(r: Review, ply: number): string {
-  const pieces = r.fens[ply].split(' ')[0].replace(/[\d/]/g, '').length;
-  if (ply < 20) return 'Khai cuộc';
-  if (pieces <= 12) return 'Tàn cuộc';
-  return 'Trung cuộc';
-}
-function addIssuesToLog() {
-  const r = review; if (!r) return;
+/** Thêm các lỗi (≥150 cp) của người dùng vào sổ lỗi, tự gán loại lỗi. Trả về số lỗi mới. */
+function logIssues(r: Review): number {
   let n = 0;
   for (const it of issues(r)) {
     if (!it.mine || it.loss < 150) continue;
-    const bm = parseUcci(it.best);
-    const bestTxt = bm ? vietnamese(new Game(r.fens[it.ply]).position, bm) : it.best;
     const id = `${r.gameId ?? 'imp'}-${it.ply}`;
     if (S.errors.some((e) => e.id === id)) continue;
-    S.errors.unshift({ id, date: todayStr(), type: guessType(r, it.ply), note: `Nước ${it.ply + 1} (${r.notes[it.ply]}) mất ${it.loss} cp. Engine đề xuất: ${bestTxt}.`, fen: r.fens[it.ply] });
+    const a = r.evals[it.ply]!, b = r.evals[it.ply + 1];
+    const bm = parseUcci(it.best);
+    const bestTxt = bm ? vietnamese(new Game(r.fens[it.ply]).position, bm) : it.best;
+    const c = classifyError({ fenBefore: r.fens[it.ply], fenAfter: r.fens[it.ply + 1], best: it.best, user: r.mv[it.ply], bestCp: a.cp, reply: b?.bestmove ?? null, ply: it.ply });
+    S.errors.unshift({ id, date: todayStr(), type: c.type, auto: true, fen: r.fens[it.ply],
+      note: `Nước ${it.ply + 1} (${r.notes[it.ply]}) mất ${it.loss} cp. ${c.why ? c.why + ' ' : ''}Engine đề xuất: ${bestTxt}.` });
     n++;
   }
-  persist(); toast = n ? `Đã thêm ${n} lỗi vào sổ lỗi.` : 'Không có lỗi mới (≥150 cp) của bạn để thêm.';
+  persist();
+  return n;
+}
+function addIssuesToLog() {
+  const r = review; if (!r) return;
+  const n = logIssues(r);
+  toast = n ? `Đã thêm ${n} lỗi vào sổ lỗi (đã tự gán loại lỗi).` : 'Không có lỗi mới (≥150 cp) của bạn để thêm.';
   render();
+}
+
+/* ---------------- Tự phân tích khi ván kết thúc ---------------- */
+interface Auto { r: Review; ctl: AbortController; state: 'wait' | 'run' | 'paused' | 'done' | 'error'; added: number; msg: string; done: number }
+let auto: Auto | null = null;
+function abortAuto() { if (auto && (auto.state === 'run' || auto.state === 'wait')) { auto.ctl.abort(); } }
+function startAuto(id: string, mv: string[], side: 'red' | 'black') {
+  abortAuto();
+  if (!mv.length) { auto = null; return; }
+  auto = { r: buildReview(mv, undefined, side, id), ctl: new AbortController(), state: 'wait', added: 0, msg: '', done: 0 };
+  ensureEngine();
+  void runAuto(auto);
+}
+async function runAuto(a: Auto) {
+  a.state = 'wait'; a.msg = 'Đang chờ engine…'; paintAuto();
+  const r = a.r;
+  try {
+    await getEngine();
+    a.state = 'run';
+    for (let i = 0; i < r.fens.length; i++) {
+      if (a.ctl.signal.aborted) throw new DOMException('aborted', 'AbortError');
+      a.done = i; a.msg = `Phân tích thế ${i + 1}/${r.fens.length}…`; paintAuto();
+      if (r.evals[i]) continue;
+      if (new Game(r.fens[i]).status().over) { r.evals[i] = { bestmove: '(none)', cp: -10000, pv: [], depth: 0 }; continue; }
+      r.evals[i] = await evalPosition(r.fens[i], { depth: 12, movetime: 600, signal: a.ctl.signal });
+    }
+    a.done = r.fens.length;
+    a.added = logIssues(r);
+    a.state = 'done'; a.msg = '';
+  } catch (e) {
+    if (isAbort(e) || a.ctl.signal.aborted) { a.state = 'paused'; a.msg = 'Phân tích đã dừng.'; }
+    else { a.state = 'error'; a.msg = e instanceof Error ? e.message : String(e); }
+  }
+  render();
+}
+function paintAuto() { const el = document.getElementById('autoprog'); if (el && auto) el.textContent = auto.msg; }
+function autoBanner(): string {
+  const a = auto; if (!a) return '';
+  const n = a.r.mv.length;
+  if (a.state === 'wait' || a.state === 'run') return `<div class="card auto"><b>Đang tự phân tích ván vừa xong (${n} nước)</b><div class="eng" id="autoprog">${esc(a.msg)}</div><div class="bar"><i style="width:${Math.round((a.done / Math.max(1, a.r.fens.length)) * 100)}%"></i></div><div class="nav"><button class="btn plain sm" data-act="autocancel">Hủy</button></div></div>`;
+  if (a.state === 'done') {
+    const mine = issues(a.r).filter((i) => i.mine), avg = mine.length ? Math.round(mine.reduce((x, y) => x + y.loss, 0) / mine.length) : 0;
+    return `<div class="card auto"><b>Đã phân tích ván vừa xong.</b> Mất trung bình ${avg} cp mỗi nước của bạn; đã thêm <b>${a.added}</b> lỗi vào sổ lỗi (tự gán loại lỗi).<div class="nav"><button class="btn ghost sm" data-act="autoview">Xem chi tiết</button><button class="btn ghost sm" data-act="autoerrors">Mở sổ lỗi</button></div></div>`;
+  }
+  if (a.state === 'paused') return `<div class="card auto"><b>Phân tích ván vừa xong đang tạm dừng.</b><div class="nav"><button class="btn ghost sm" data-act="autoresume">Tiếp tục</button></div></div>`;
+  return `<div class="card auto"><b class="q-mistake">Không phân tích được:</b> ${esc(a.msg)}<div class="nav"><button class="btn ghost sm" data-act="autoresume">Thử lại</button></div></div>`;
 }
 
 async function makePuzzles() {
@@ -252,6 +307,7 @@ function viewToday(): string {
     <div class="tile"><div class="k">Ngày</div><div class="v">${diff < 0 ? '–' : Math.min(diff + 1, 84)}<small> / 84</small></div></div>
     <div class="tile"><div class="k">Ván đã ghi</div><div class="v">${played}<small> · thắng ${wins}</small></div></div>
   </div>
+  ${placementCardHtml()}
   <div class="card"><h2>${esc(MONTHS[W.m - 1])}</h2><p class="theme">Tuần ${week + 1}: ${esc(W.t)}</p><p class="goal">${esc(W.d)}</p><p class="goal"><b>Mục tiêu:</b> ${esc(W.g)}</p>
     <div class="strip">${strip}</div>
     <h2>${DAYS[parseYmd(viewDate).getDay()]}, ${fmt(viewDate)}${viewDate === td ? ' · hôm nay' : ''}</h2>
@@ -288,7 +344,7 @@ function viewPlay(eng: string): string {
     : `<span class="stat">${p.thinking ? 'Engine đang nghĩ…' : g.turn === p.side ? 'Đến lượt bạn' : 'Đến lượt máy'}${st.inCheck ? ' · Chiếu!' : ''}</span>`;
   const notes = g.history.map((r) => vietnamese(new Game(r.fenBefore).position, r.move));
   const svg = boardSvg({ board: g.board, flipped: p.flipped, selected: p.sel, targets: p.targets, last: lastMove(g), hint: p.hint, checkKing: checkKing(g) });
-  return `<div class="card"><div class="ctl">
+  return `${autoBanner()}<div class="card"><div class="ctl">
     <label class="f">Bạn cầm<select data-act="pside"><option value="w" ${p.side === 'w' ? 'selected' : ''}>Đỏ (đi trước)</option><option value="b" ${p.side === 'b' ? 'selected' : ''}>Đen</option></select></label>
     <label class="f">Mức độ<select data-act="plevel">${LEVELS.map((l, i) => `<option value="${i}" ${p.level === i ? 'selected' : ''}>${l.name}</option>`).join('')}</select></label>
     <button class="btn" data-act="pnew">Ván mới</button></div><p>${eng.replace('class="eng', 'class="eng')}</p></div>
@@ -360,7 +416,7 @@ function viewErrors(): string {
   const max = Math.max(1, ...Object.values(counts));
   const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
   const dist = Object.entries(counts).map(([t, n]) => `<div class="r ${n && top[0] === t ? 'top' : ''}"><span>${esc(t)}</span><div class="t"><i style="width:${(n / max) * 100}%"></i></div><span>${n}</span></div>`).join('');
-  const list = S.errors.map((e) => `<div class="row"><div class="main"><span class="pill">${esc(e.type)}</span> <span class="meta">${fmt(e.date)}</span><div>${esc(e.note)}</div>${e.fen ? `<div class="meta">${esc(e.fen)}</div>` : ''}</div><button class="btn plain sm" data-act="delerr" data-id="${esc(e.id)}">Xóa</button></div>`).join('');
+  const list = S.errors.map((e) => `<div class="row"><div class="main"><select class="etype" data-act="errtype" data-id="${esc(e.id)}" aria-label="Loại lỗi">${ERR_TYPES.map((t) => `<option ${t === e.type ? 'selected' : ''}>${t}</option>`).join('')}</select> ${e.auto ? '<span class="pill">tự gán</span>' : ''} <span class="meta">${fmt(e.date)}</span><div>${esc(e.note)}</div>${e.fen ? `<div class="meta">${esc(e.fen)}</div>` : ''}</div><button class="btn plain sm" data-act="delerr" data-id="${esc(e.id)}">Xóa</button></div>`).join('');
   return `<div class="card"><h2>Thêm lỗi</h2><form class="grid" data-form="err"><label class="f">Loại lỗi<select name="type">${ERR_TYPES.map((t) => `<option>${t}</option>`).join('')}</select></label>
     <label class="f full">Mô tả<input type="text" name="note" required placeholder="Ví dụ: bỏ Pháo bị treo ở nước 18"></label><button class="btn">Lưu</button></form></div>
   <div class="card"><h2>Phân bố lỗi</h2><div class="dist">${dist}</div></div>
@@ -385,15 +441,16 @@ function viewProgress(): string {
   const fin = FINAL.map((t, i) => `<li class="task ${S.finalTest[i] ? 'done' : ''}"><label><input type="checkbox" data-act="final" data-i="${i}" ${S.finalTest[i] ? 'checked' : ''}><span>${esc(t)}</span></label></li>`).join('');
   return `<div class="tiles"><div class="tile"><div class="k">Ván</div><div class="v">${n}</div></div><div class="tile"><div class="k">Tỉ lệ thắng</div><div class="v">${n ? Math.round((w / n) * 100) : 0}<small>%</small></div></div><div class="tile"><div class="k">Hòa</div><div class="v">${d}</div></div></div>
   <div class="two">${metric('puzzle', 'Bài chiếu bí đúng (%)')}${metric('elo', 'Elo / điểm xếp hạng')}</div>
-  <div class="card"><h2>Bài kiểm tra cuối khóa (tuần 12)</h2><ul class="tasks">${fin}</ul></div>
+  ${placementCompareHtml()}
+  <div class="card"><h2>Bài kiểm tra cuối khóa (tuần 12)</h2><ul class="tasks">${fin}</ul><div class="nav"><button class="btn ghost" data-act="pl-begin" data-kind="final">Làm bài kiểm tra cuối khóa (cùng định dạng đầu vào)</button></div></div>
   ${practiceStatsHtml()}
   <div class="card"><h2>Các ván</h2><div class="list">${games || '<p class="muted small">Chưa có ván nào. Chơi ở tab Bàn cờ hoặc nhập ván.</p>'}</div></div>
   <div class="card"><h2>Sao lưu</h2><p class="small muted">Dữ liệu lưu trong trình duyệt này. Xuất file JSON để chuyển sang máy khác.</p><div class="nav"><button class="btn ghost" data-act="export">Xuất JSON</button><label class="btn ghost" style="cursor:pointer">Nhập JSON<input type="file" accept="application/json" data-act="import" hidden></label><button class="btn plain" data-act="reset">Xóa tất cả</button></div></div>`;
 }
 
 function render() {
-  const tabs: [Tab, string][] = [['today', 'Hôm nay'], ['board', 'Bàn cờ'], ['practice', 'Luyện tập'], ['plan', 'Kế hoạch'], ['errors', 'Sổ lỗi'], ['progress', 'Tiến độ']];
-  const body = { today: viewToday, board: viewBoard, practice: viewPractice, plan: viewPlan, errors: viewErrors, progress: viewProgress }[tab]();
+  const tabs: [Tab, string][] = [['today', 'Hôm nay'], ['board', 'Bàn cờ'], ['practice', 'Luyện tập'], ['placement', 'Kiểm tra'], ['plan', 'Kế hoạch'], ['errors', 'Sổ lỗi'], ['progress', 'Tiến độ']];
+  const body = { today: viewToday, board: viewBoard, practice: viewPractice, placement: viewPlacement, plan: viewPlan, errors: viewErrors, progress: viewProgress }[tab]();
   app.innerHTML = `<header class="top"><div class="piece">帥</div><div><h1>Cờ tướng 12 tuần</h1><p class="sub">Giáo án, bàn cờ và phân tích bằng Pikafish</p></div></header>
   <nav class="tabs">${tabs.map(([k, l]) => `<button data-act="tab" data-tab="${k}" ${tab === k ? 'aria-current="page"' : ''}>${l}</button>`).join('')}</nav>${body}`;
 }
@@ -407,13 +464,14 @@ app.addEventListener('click', (ev) => {
   const t = ev.target as Element;
   const hit = t.closest('.hit') as SVGElement | null;
   if (hit && tab === 'board' && sub === 'play') { boardClick(Number(hit.dataset.f), Number(hit.dataset.r)); return; }
+  if (hit && tab === 'placement') { placementBoardClick(Number(hit.dataset.f), Number(hit.dataset.r)); return; }
   if (hit && tab === 'practice') { practiceBoardClick(Number(hit.dataset.f), Number(hit.dataset.r)); return; }
   const el = t.closest('[data-act]') as HTMLElement | null;
   if (!el) return;
   const a = el.dataset.act!;
   if (el.tagName === 'SELECT' || el.tagName === 'INPUT') return;
   switch (a) {
-    case 'tab': if (tab === 'practice' && el.dataset.tab !== 'practice') practiceLeave(); tab = el.dataset.tab as Tab; render(); break;
+    case 'tab': if (tab === 'practice' && el.dataset.tab !== 'practice') practiceLeave(); if (tab === 'placement' && el.dataset.tab !== 'placement') placementLeave(); tab = el.dataset.tab as Tab; render(); break;
     case 'sub': sub = el.dataset.sub as Sub; render(); break;
     case 'pickday': viewDate = el.dataset.date!; render(); break;
     case 'timer': {
@@ -431,6 +489,11 @@ app.addEventListener('click', (ev) => {
     case 'analyze': void analyzeAll(); break;
     case 'tolog': addIssuesToLog(); break;
     case 'mkpuz': void makePuzzles(); break;
+    case 'autocancel': abortAuto(); break;
+    case 'autoresume': if (auto) void runAuto(Object.assign(auto, { ctl: new AbortController() })); break;
+    case 'autoview': if (auto) { review = auto.r; sub = 'review'; render(); } break;
+    case 'autoerrors': tab = 'errors'; render(); break;
+    case 'pl-begin': tab = 'placement'; placementBegin(el.dataset.kind === 'final' ? 'final' : 'start'); break;
     case 'iparse': {
       impText = (document.getElementById('imptext') as HTMLTextAreaElement).value;
       impParsed = parseGameText(impText); render(); break;
@@ -445,7 +508,8 @@ app.addEventListener('click', (ev) => {
     case 'rev': { const e = S.games.find((x) => x.id === el.dataset.id); if (e) openReview(e); break; }
     case 'export': download(`xiangqi-backup-${todayStr()}.json`, exportJson(S)); break;
     case 'reset': if (confirm('Xóa toàn bộ dữ liệu trong trình duyệt này?')) { localStorage.clear(); S = load(); render(); } break;
-    default: practiceAct(a, el);
+    default:
+      if (a.startsWith('pl-')) { if (a === 'pl-open' || a === 'pl-view') tab = 'placement'; placementAct(a, el); } else practiceAct(a, el);
   }
 });
 
@@ -461,6 +525,8 @@ app.addEventListener('change', (ev) => {
     case 'rside': if (review) { review.side = el.value as 'red' | 'black'; render(); } break;
     case 'iside': impSide = el.value as 'red' | 'black'; break;
     case 'ires': impResult = el.value as 'win' | 'loss' | 'draw'; break;
+    case 'errtype': { const e = S.errors.find((x) => x.id === el.dataset.id); if (e) { e.type = el.value; e.auto = false; persist(); render(); } break; }
+    case 'pl-survey': placementChange(a, el); break;
     case 'pf-level': case 'pf-source': case 'pf-week': case 'gentarget': case 'genwant': practiceChange(a, el); break;
     case 'import': {
       const f = (el as HTMLInputElement).files?.[0]; if (!f) break;
@@ -486,6 +552,7 @@ app.addEventListener('input', (ev) => { const el = ev.target as HTMLElement; if 
 
 void moveToUcci; void cpOf;
 initPractice({ S: () => S, persist, render, esc, today: todayStr, weekIndex: () => progressInfo().week, ensureEngine, engLine: () => engMsg, engReady: () => engStatus === 'ready', isActive: () => tab === 'practice' });
+initPlacement({ S: () => S, persist, render, esc, today: todayStr, weekIndex: () => progressInfo().week, ensureEngine, engLine: () => engMsg, engReady: () => engStatus === 'ready', isActive: () => tab === 'placement', stopAuto: abortAuto, setStart: (d: string) => { S.start = d; persist(); } });
 render();
 
 // Công cụ kiểm tra (chỉ bật khi thêm ?debug vào URL): chạy tàn cuộc tự đấu để xác định kết quả mong đợi.
