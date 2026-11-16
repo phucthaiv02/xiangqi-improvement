@@ -1,0 +1,14 @@
+Cờ tướng 12 tuần — thành phần bên thứ ba
+
+1. pikafish-js và @pikafish-js/rules — https://github.com/Maicarons/pikafish-js
+   Giấy phép AGPL-3.0-or-later. Dự án này liên kết với các gói đó nên được phát hành cùng giấy phép;
+   mã nguồn có sẵn trong repository này.
+
+2. Pikafish — https://github.com/official-pikafish/Pikafish
+   Engine cờ tướng, giấy phép GPL-3.0, được biên dịch sang WebAssembly bởi pikafish-js
+   (tải về lúc build vào public/engine, không lưu trong git). Mã nguồn đối ứng: kho Pikafish ở trên
+   và bản vá trong kho pikafish-js.
+
+3. Mạng NNUE (pikafish-lite.nnue, pikafish-w256.nnue) từ release "networks" của pikafish-js.
+   Mạng Pikafish chính thức không được dùng cho mục đích thương mại nếu chưa có phép của tác giả;
+   hãy kiểm tra điều khoản của từng mạng trước khi dùng thương mại. Dự án này dành cho học tập cá nhân.

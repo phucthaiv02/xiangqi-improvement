@@ -1,0 +1,33 @@
+{
+  "name": "xiangqi-improvement",
+  "version": "1.0.0",
+  "description": "Giáo án 12 tuần cờ tướng + bàn cờ chơi/phân tích với Pikafish (WASM)",
+  "scripts": {
+    "fetch-engine": "node scripts/fetch-engine.mjs",
+    "dev": "node scripts/fetch-engine.mjs && vite",
+    "build": "node scripts/fetch-engine.mjs && vite build",
+    "typecheck": "tsc",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/phucthaiv02/xiangqi-improvement.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "AGPL-3.0-or-later",
+  "bugs": {
+    "url": "https://github.com/phucthaiv02/xiangqi-improvement/issues"
+  },
+  "homepage": "https://github.com/phucthaiv02/xiangqi-improvement#readme",
+  "dependencies": {
+    "@pikafish-js/rules": "^1.0.0",
+    "pikafish-js": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  },
+  "private": true,
+  "type": "module"
+}
