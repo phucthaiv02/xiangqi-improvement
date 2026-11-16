@@ -7,7 +7,8 @@
     "dev": "node scripts/fetch-engine.mjs && vite",
     "build": "node scripts/fetch-engine.mjs && vite build",
     "typecheck": "tsc",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "tsx tests/sync.test.ts"
   },
   "repository": {
     "type": "git",
@@ -22,9 +23,11 @@
   "homepage": "https://github.com/phucthaiv02/xiangqi-improvement#readme",
   "dependencies": {
     "@pikafish-js/rules": "^1.0.0",
+    "@supabase/supabase-js": "^2.119.0",
     "pikafish-js": "^1.0.0"
   },
   "devDependencies": {
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.8"
   },

@@ -193,3 +193,5 @@ select.etype{font:600 12px var(--font);padding:2px 6px;border:1px solid var(--li
 .card .dist .r > span:last-child{text-align:right}
 .legend{margin:6px 0 0;line-height:1.9}
 @media (max-width:480px){.card .dist .r{grid-template-columns:minmax(0,1fr) auto;row-gap:2px}.card .dist .r > span:last-child{grid-column:1 / -1;text-align:left;color:var(--muted);font-size:13px}}
+
+.syncb{margin-left:auto;font-size:12px;color:var(--muted);white-space:nowrap}

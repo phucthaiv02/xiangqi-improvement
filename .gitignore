@@ -3,3 +3,5 @@ dist
 public/engine
 .vercel
 *.log
+.env
+.env.local

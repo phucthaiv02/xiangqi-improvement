@@ -12,3 +12,6 @@ Cờ tướng 12 tuần — thành phần bên thứ ba
 3. Mạng NNUE (pikafish-lite.nnue, pikafish-w256.nnue) từ release "networks" của pikafish-js.
    Mạng Pikafish chính thức không được dùng cho mục đích thương mại nếu chưa có phép của tác giả;
    hãy kiểm tra điều khoản của từng mạng trước khi dùng thương mại. Dự án này dành cho học tập cá nhân.
+
+4. @supabase/supabase-js — https://github.com/supabase/supabase-js
+   Giấy phép MIT. Chỉ dùng khi bật đồng bộ (tùy chọn); không có mã nào của Supabase được sao chép vào repository.

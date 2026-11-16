@@ -10,6 +10,8 @@ import { playOut, isAbort } from './puzzles';
 import { classifyError } from './tactics';
 import { initPlacement, viewPlacement, placementAct, placementChange, placementBoardClick, placementLeave, placementCardHtml, placementCompareHtml, placementBegin } from './placement';
 import { ENDGAMES } from './endgames';
+import { SyncController } from './sync';
+import { syncConfigured, getClient, currentSession, onSession, sendLoginLink, signOut, supabaseBackend } from './supabase';
 import { initPractice, viewPractice, practiceAct, practiceChange, practiceBoardClick, practiceLeave, practiceStatsHtml, addGamePuzzles } from './practice';
 
 type Tab = 'today' | 'board' | 'practice' | 'placement' | 'plan' | 'errors' | 'progress';
@@ -23,7 +25,70 @@ let toast = '';
 
 const app = document.getElementById('app')!;
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-const persist = () => save(S);
+const persist = () => { save(S); sync.schedule(); };
+
+/* ---------------- Đồng bộ Supabase ---------------- */
+const BASE_KEY = 'xiangqi-improvement.base';
+let sessionUser: { id: string; email: string } | null = null;
+let loginMsg = '';
+const sync: SyncController = new SyncController({
+  makeDeps: () => {
+    const c = getClient(); if (!c || !sessionUser) return null;
+    return {
+      backend: supabaseBackend(c, sessionUser.id),
+      getState: () => S,
+      applyState: (m) => { Object.assign(S, m); save(S); render(); },
+      loadBase: () => { try { const r = localStorage.getItem(BASE_KEY); return r ? JSON.parse(r) : null; } catch { return null; } },
+      saveBase: (b) => { try { if (b) localStorage.setItem(BASE_KEY, JSON.stringify(b)); else localStorage.removeItem(BASE_KEY); } catch { /* đầy bộ nhớ */ } },
+    };
+  },
+  isOnline: () => navigator.onLine,
+  isBusy: () => play.thinking,
+  now: () => Date.now(),
+  setTimer: (f, ms) => setTimeout(f, ms),
+  clearTimer: (h) => clearTimeout(h as number),
+});
+const hhmm = (t: number) => { const d = new Date(t); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+function syncText(short = false): string {
+  if (!sessionUser) return 'Chưa đăng nhập';
+  switch (sync.status) {
+    case 'syncing': return 'Đang đồng bộ…';
+    case 'ok': return `Đã đồng bộ lúc ${sync.lastAt ? hhmm(sync.lastAt) : ''}`.trim();
+    case 'error': return short ? 'Chưa đồng bộ' : `Chưa đồng bộ: ${sync.error}`;
+    default: return 'Sẵn sàng đồng bộ';
+  }
+}
+function paintSync() {
+  const st = document.getElementById('sync-status'); if (st) st.textContent = syncText();
+  const b = document.getElementById('sync-badge'); if (b) b.textContent = syncConfigured ? `☁ ${syncText(true)}` : '';
+}
+sync.onChange(paintSync);
+function setSession(u: { id: string; email: string } | null) {
+  const was = sessionUser?.id; sessionUser = u;
+  if (u?.id === was) return;
+  if (u) void sync.syncNow(); else sync.status = 'idle';
+  render();
+}
+async function initSync() {
+  if (!syncConfigured) return;
+  const s = await currentSession();
+  setSession(s?.user ? { id: s.user.id, email: s.user.email ?? '' } : null);
+  onSession((x) => setSession(x?.user ? { id: x.user.id, email: x.user.email ?? '' } : null));
+  const kick = () => { if (sessionUser) void sync.syncNow(); };
+  window.addEventListener('focus', kick); window.addEventListener('online', kick);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') kick(); });
+  setInterval(kick, 120000);
+}
+function syncCardHtml(): string {
+  if (!syncConfigured) return `<div class="card"><h2>Đồng bộ</h2><p class="small muted">Chưa bật. Dữ liệu chỉ lưu trong trình duyệt này. Để đồng bộ giữa các thiết bị, tạo dự án Supabase và đặt hai biến môi trường VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY (xem README, mục Đồng bộ).</p></div>`;
+  if (!sessionUser) return `<div class="card"><h2>Đồng bộ</h2><p class="small muted">Đăng nhập bằng email để đồng bộ dữ liệu giữa các thiết bị. Bạn sẽ nhận một link đăng nhập, không cần mật khẩu.</p>
+    <form class="grid" data-form="login"><label class="f">Email<input type="email" name="email" required autocomplete="email" placeholder="ban@example.com"></label><button class="btn">Gửi link đăng nhập</button></form>
+    <p class="small muted" id="login-msg" role="status" aria-live="polite">${esc(loginMsg)}</p></div>`;
+  return `<div class="card"><h2>Đồng bộ</h2><p class="small">Đăng nhập: <b>${esc(sessionUser.email)}</b></p>
+    <p class="small" id="sync-status" role="status" aria-live="polite">${esc(syncText())}</p>
+    <div class="nav"><button class="btn ghost" data-act="sync-now">Đồng bộ ngay</button><button class="btn plain" data-act="sync-out">Đăng xuất</button></div>
+    <p class="small muted">Đăng xuất không xóa dữ liệu trong trình duyệt này.</p></div>`;
+}
 const todayStr = () => ymd(new Date());
 const fmt = (s: string) => { const d = parseYmd(s); return `${d.getDate()}/${d.getMonth() + 1}`; };
 
@@ -515,14 +580,16 @@ function viewProgress(): string {
   <div class="card"><h2>Bài kiểm tra cuối khóa (tuần 12)</h2><ul class="tasks">${fin}</ul><div class="nav"><button class="btn ghost" data-act="pl-begin" data-kind="final">Làm bài kiểm tra cuối khóa (cùng định dạng đầu vào)</button></div></div>
   ${practiceStatsHtml()}
   <div class="card"><h2>Các ván</h2><div class="list">${games || '<p class="muted small">Chưa có ván nào. Chơi ở tab Bàn cờ hoặc nhập ván.</p>'}</div></div>
+  ${syncCardHtml()}
   <div class="card"><h2>Sao lưu</h2><p class="small muted">Dữ liệu lưu trong trình duyệt này. Xuất file JSON để chuyển sang máy khác.</p><div class="nav"><button class="btn ghost" data-act="export">Xuất JSON</button><label class="btn ghost" style="cursor:pointer">Nhập JSON<input type="file" accept="application/json" data-act="import" hidden></label><button class="btn plain" data-act="reset">Xóa tất cả</button></div></div>`;
 }
 
 function render() {
   const tabs: [Tab, string][] = [['today', 'Hôm nay'], ['board', 'Bàn cờ'], ['practice', 'Luyện tập'], ['placement', 'Kiểm tra'], ['plan', 'Kế hoạch'], ['errors', 'Sổ lỗi'], ['progress', 'Tiến độ']];
   const body = { today: viewToday, board: viewBoard, practice: viewPractice, placement: viewPlacement, plan: viewPlan, errors: viewErrors, progress: viewProgress }[tab]();
-  app.innerHTML = `<header class="top"><div class="piece">帥</div><div><h1>Cờ tướng 12 tuần</h1><p class="sub">Giáo án, bàn cờ và phân tích bằng Pikafish</p></div></header>
+  app.innerHTML = `<header class="top"><div class="piece">帥</div><div><h1>Cờ tướng 12 tuần</h1><p class="sub">Giáo án, bàn cờ và phân tích bằng Pikafish</p></div>${syncConfigured ? '<span id="sync-badge" class="syncb" role="status" aria-live="polite"></span>' : ''}</header>
   <nav class="tabs">${tabs.map(([k, l]) => `<button data-act="tab" data-tab="${k}" ${tab === k ? 'aria-current="page"' : ''}>${l}</button>`).join('')}</nav>${body}`;
+  paintSync();
 }
 
 /* ---------------- Events ---------------- */
@@ -577,7 +644,9 @@ app.addEventListener('click', (ev) => {
     case 'delgame': S.games = S.games.filter((e) => e.id !== el.dataset.id); persist(); render(); break;
     case 'rev': { const e = S.games.find((x) => x.id === el.dataset.id); if (e) openReview(e); break; }
     case 'export': download(`xiangqi-backup-${todayStr()}.json`, exportJson(S)); break;
-    case 'reset': if (confirm('Xóa toàn bộ dữ liệu trong trình duyệt này?')) { localStorage.clear(); S = load(); render(); } break;
+    case 'sync-now': void sync.syncNow(); break;
+    case 'sync-out': void signOut().then(() => { try { localStorage.removeItem(BASE_KEY); } catch { /* bỏ qua */ } setSession(null); }); break;
+    case 'reset': if (confirm(sessionUser ? 'Xóa dữ liệu trong trình duyệt này? Đang bật đồng bộ nên dữ liệu trên máy chủ sẽ được tải lại.' : 'Xóa toàn bộ dữ liệu trong trình duyệt này?')) { localStorage.clear(); S = load(); render(); if (sessionUser) void currentSession().then((x) => { if (!x) setSession(null); else void sync.syncNow(); }); } break;
     default:
       if (a.startsWith('pl-')) { if (a === 'pl-open' || a === 'pl-view') tab = 'placement'; placementAct(a, el); } else practiceAct(a, el);
   }
@@ -600,7 +669,7 @@ app.addEventListener('change', (ev) => {
     case 'pf-level': case 'pf-source': case 'pf-week': case 'gentarget': case 'genwant': practiceChange(a, el); break;
     case 'import': {
       const f = (el as HTMLInputElement).files?.[0]; if (!f) break;
-      f.text().then((txt) => { try { S = importJson(txt); persist(); toast = ''; render(); } catch (e) { alert(e instanceof Error ? e.message : 'Lỗi'); } });
+      f.text().then((txt) => { try { S = importJson(txt); persist(); if (sessionUser) void sync.syncNow({ force: true }); toast = ''; render(); } catch (e) { alert(e instanceof Error ? e.message : 'Lỗi'); } });
       break;
     }
   }
@@ -611,6 +680,11 @@ app.addEventListener('submit', (ev) => {
   const f = ev.target as HTMLFormElement; const fd = new FormData(f);
   if (f.dataset.form === 'err') {
     S.errors.unshift({ id: uid(), date: todayStr(), type: String(fd.get('type')), note: String(fd.get('note')) }); persist(); render();
+  } else if (f.dataset.form === 'login') {
+    const email = String(fd.get('email') ?? '').trim();
+    const say = (t: string) => { loginMsg = t; const el = document.getElementById('login-msg'); if (el) el.textContent = t; };
+    say('Đang gửi…');
+    void sendLoginLink(email).then((e) => say(e ? `Lỗi: ${e}` : `Đã gửi link tới ${email}. Mở email và bấm vào link để đăng nhập.`));
   } else if (f.dataset.form === 'metric') {
     const key = f.dataset.key as 'puzzle' | 'elo';
     S.metrics[key].push({ date: String(fd.get('date')), v: Number(fd.get('v')) });
@@ -621,6 +695,7 @@ app.addEventListener('submit', (ev) => {
 app.addEventListener('input', (ev) => { const el = ev.target as HTMLElement; if (el.id === 'imptext') impText = (el as HTMLTextAreaElement).value; });
 
 void moveToUcci; void cpOf;
+void initSync();
 initPractice({ S: () => S, persist, render, esc, today: todayStr, weekIndex: () => progressInfo().week, ensureEngine, engLine: () => engMsg, engReady: () => engStatus === 'ready', isActive: () => tab === 'practice' });
 initPlacement({ S: () => S, persist, render, esc, today: todayStr, weekIndex: () => progressInfo().week, ensureEngine, engLine: () => engMsg, engReady: () => engStatus === 'ready', isActive: () => tab === 'placement', stopAuto: abortAuto, setStart: (d: string) => { S.start = d; persist(); } });
 render();

@@ -69,6 +69,21 @@ Engine (~41 MB gồm 2 mạng NNUE) **không** nằm trong git; `scripts/fetch-e
 
 `vercel.json` gửi các header `Cross-Origin-Opener-Policy: same-origin` và `Cross-Origin-Embedder-Policy: require-corp` — bắt buộc để WASM đa luồng (`SharedArrayBuffer`) chạy được. Không tải gì từ domain khác.
 
+## Đồng bộ nhiều thiết bị (Supabase, tùy chọn)
+
+Mặc định dữ liệu chỉ nằm trong `localStorage` của trình duyệt. Bật đồng bộ để dùng cùng một dữ liệu trên laptop và điện thoại. `localStorage` vẫn là bộ nhớ chính (dùng được khi ngoại tuyến); Supabase là bản đồng bộ.
+
+1. Tạo project miễn phí tại supabase.com.
+2. Vào **SQL Editor**, dán và chạy toàn bộ `supabase/schema.sql` (tạo bảng `user_data` và bật RLS: mỗi người chỉ đọc/ghi hàng của mình).
+3. **Authentication → URL Configuration**: đặt **Site URL** là domain Vercel của bạn (ví dụ `https://xiangqi-improvement.vercel.app`) và thêm chính domain đó vào **Redirect URLs** (thêm `http://localhost:5173` nếu muốn thử trên máy).
+4. **Project Settings → API**: copy **Project URL** và **anon public key**. Trong Vercel → Settings → Environment Variables, đặt `VITE_SUPABASE_URL` và `VITE_SUPABASE_ANON_KEY`, rồi **Redeploy** (biến `VITE_*` được nhúng lúc build). Chạy cục bộ thì sao chép `.env.example` thành `.env.local` và điền hai giá trị.
+5. Mở app → tab **Tiến độ** → thẻ **Đồng bộ** → nhập email → bấm link nhận được trong email. Làm tương tự trên thiết bị khác với cùng email.
+6. Vì chỉ một mình bạn dùng, sau lần đăng nhập đầu hãy tắt **Authentication → Sign In / Providers → Allow new users to sign up** để không ai khác tạo được tài khoản.
+
+Lưu ý bảo mật: anon key là khóa **công khai** (nằm trong mã gửi tới trình duyệt); dữ liệu được bảo vệ bởi RLS trong `schema.sql`. Không bao giờ đặt `service_role` key vào biến `VITE_*`.
+
+Cách đồng bộ: toàn bộ dữ liệu là một tài liệu JSON trong cột `data`. Mỗi thiết bị nhớ bản đã đồng bộ lần cuối (`base`) và hợp nhất ba chiều (base / máy này / máy chủ): mục mới ở hai nơi được gộp lại, mục bị xóa ở một nơi thì bị xóa, sửa cùng một mục ở hai nơi thì bản trên máy đang dùng thắng. Ghi có kiểm tra phiên bản (`rev`) nên hai thiết bị ghi cùng lúc không ghi đè nhau mà được hợp nhất lại. Đồng bộ tự chạy sau khi lưu (trễ ~3 giây), khi quay lại tab, và mỗi 2 phút; có nút "Đồng bộ ngay". Bản nháp bài kiểm tra đang làm dở chỉ ở máy hiện tại. Sau khi **Nhập JSON**, dữ liệu nhập ghi đè bản trên máy chủ. Chạy kiểm thử: `npm test`.
+
 ## Giới hạn
 
 - Loại lỗi tự gán dựa trên đánh giá engine ở độ sâu 12 trong 0,6 giây mỗi thế và phép tính lời/lỗ đơn giản, nên có thể gán nhầm; hãy sửa tay khi cần.
@@ -77,7 +92,8 @@ Engine (~41 MB gồm 2 mạng NNUE) **không** nằm trong git; `scripts/fetch-e
 - Bộ chấm "thí quân" chỉ kiểm tra quân đi tới ô bị đối phương tấn công và đắt hơn quân bị ăn, nên là xấp xỉ.
 - Cần trình duyệt có WebAssembly (Chrome/Edge/Firefox/Safari mới). Lần đầu tải mạng NNUE ~25 MB, sau đó được cache.
 - Dùng mạng Pikafish *Lite* (đã chưng cất) cho nhẹ; yếu hơn bản đầy đủ nhưng vẫn vượt xa trình độ mục tiêu.
-- Chưa có đồng bộ đa thiết bị.
+- Đồng bộ chưa được thử với một project Supabase thật trong môi trường phát triển (chỉ kiểm thử logic bằng backend giả). Nếu gặp lỗi khi đăng nhập hoặc đồng bộ, xem thông báo trong thẻ Đồng bộ và kiểm tra lại các bước ở mục trên.
+- Hai thiết bị cùng sửa một mục trước khi kịp đồng bộ: bản trên thiết bị đồng bộ sau thắng. Không có lịch sử phiên bản.
 
 ## Giấy phép
 Mã nguồn dự án: **AGPL-3.0-or-later** (xem `LICENSE`), vì dùng `pikafish-js` và `@pikafish-js/rules` (AGPL-3.0-or-later). Xem `NOTICE` về Pikafish (GPL-3.0) và các mạng NNUE.
