@@ -433,13 +433,66 @@ function spark(vals: { date: string; v: number }[]): string {
   return `<svg class="spark" viewBox="0 0 ${w} ${h}"><line class="gl" x1="${pad}" y1="${h - pad}" x2="${w - pad}" y2="${h - pad}"/><polyline class="ln" points="${d}"/>${dots}</svg>`;
 }
 
+
+const TYPE_COLORS = ['#b3261e', '#d97706', '#2c7a4b', '#1d6fb8', '#7c4dbd', '#6b7280', '#0f766e'];
+function weekOf(date: string): number {
+  const d = (s: string) => new Date(`${s}T00:00:00`).getTime();
+  return Math.max(0, Math.floor((d(date) - d(S.start)) / (7 * 86400000)));
+}
+
+/** Cột chồng: số lỗi mỗi tuần, chia theo loại lỗi. */
+function errorsByWeekChart(): string {
+  if (!S.errors.length) return '<p class="muted small">Chưa có lỗi nào để vẽ biểu đồ.</p>';
+  const nW = Math.min(12, Math.max(...S.errors.map((e) => weekOf(e.date)), 0) + 1);
+  const grid = Array.from({ length: nW }, () => new Array(ERR_TYPES.length).fill(0) as number[]);
+  S.errors.forEach((e) => { const w = Math.min(weekOf(e.date), nW - 1); const k = ERR_TYPES.indexOf(e.type); if (k >= 0) grid[w][k]++; });
+  const totals = grid.map((r) => r.reduce((a, b) => a + b, 0));
+  const max = Math.max(...totals, 1);
+  const W = 560, H = 140, pad = 24, bw = Math.min(36, ((W - pad * 2) / nW) * 0.7), step = (W - pad * 2) / nW;
+  let bars = '';
+  grid.forEach((row, w) => {
+    let y = H - pad; const x = pad + w * step + (step - bw) / 2;
+    row.forEach((c, k) => { if (!c) return; const h = (c / max) * (H - pad * 2); y -= h; bars += `<rect x="${x}" y="${y}" width="${bw}" height="${h}" fill="${TYPE_COLORS[k % TYPE_COLORS.length]}"><title>Tuần ${w + 1} · ${esc(ERR_TYPES[k])}: ${c}</title></rect>`; });
+    bars += `<text class="val" x="${x + bw / 2}" y="${H - 8}" text-anchor="middle">T${w + 1}</text>`;
+    if (totals[w]) bars += `<text class="val" x="${x + bw / 2}" y="${y - 4}" text-anchor="middle">${totals[w]}</text>`;
+  });
+  const legend = ERR_TYPES.map((tp, k) => `<span class="small"><span style="display:inline-block;width:10px;height:10px;background:${TYPE_COLORS[k % TYPE_COLORS.length]};margin-right:4px"></span>${esc(tp)}</span>`).join(' &nbsp; ');
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" role="img" aria-label="Số lỗi mỗi tuần theo loại">${bars}</svg><p class="legend">${legend}</p>`;
+}
+
+/** Đường tỉ lệ đúng theo tuần cho từng loại bài. */
+function accuracyByKindChart(): string {
+  const byId = new Map(S.puzzles.map((p) => [p.id, p]));
+  const kinds = [['mate', 'Chiếu bí', '#b3261e'], ['tactic', 'Chiến thuật', '#1d6fb8'], ['loss', 'Từ ván của bạn', '#2c7a4b']] as const;
+  const at = S.attempts.filter((a) => !a.shown && !a.pid.startsWith('eg:'));
+  if (!at.length) return '<p class="muted small">Chưa có lần giải nào để vẽ biểu đồ.</p>';
+  const nW = Math.min(12, Math.max(...at.map((a) => weekOf(a.date)), 0) + 1);
+  if (nW < 2) return '<p class="muted small">Cần dữ liệu của ít nhất 2 tuần để vẽ biểu đồ.</p>';
+  const W = 560, H = 150, pad = 28, step = (W - pad * 2) / (nW - 1);
+  let svg = [0, 50, 100].map((v) => `<line class="gl" x1="${pad}" x2="${W - pad}" y1="${H - pad - (v / 100) * (H - pad * 2)}" y2="${H - pad - (v / 100) * (H - pad * 2)}"/><text class="val" x="4" y="${H - pad - (v / 100) * (H - pad * 2) + 4}">${v}</text>`).join('');
+  for (let w = 0; w < nW; w++) svg += `<text class="val" x="${pad + w * step}" y="${H - 8}" text-anchor="middle">T${w + 1}</text>`;
+  for (const [k, , color] of kinds) {
+    const pts: [number, number, number][] = [];
+    for (let w = 0; w < nW; w++) {
+      const a = at.filter((x) => byId.get(x.pid)?.kind === k && Math.min(weekOf(x.date), nW - 1) === w);
+      if (a.length) pts.push([pad + w * step, H - pad - (a.filter((x) => x.ok).length / a.length) * (H - pad * 2), Math.round((a.filter((x) => x.ok).length / a.length) * 100)]);
+    }
+    if (pts.length > 1) svg += `<polyline fill="none" stroke="${color}" stroke-width="2" points="${pts.map((p) => `${p[0]},${p[1]}`).join(' ')}"/>`;
+    svg += pts.map((p) => `<circle cx="${p[0]}" cy="${p[1]}" r="4" fill="${color}"><title>${p[2]}%</title></circle>`).join('');
+  }
+  const legend = kinds.map(([, n, c]) => `<span class="small"><span style="display:inline-block;width:10px;height:10px;background:${c};margin-right:4px"></span>${n}</span>`).join(' &nbsp; ');
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" role="img" aria-label="Tỉ lệ đúng theo tuần cho từng loại bài">${svg}</svg><p class="legend">${legend}</p>`;
+}
+
 function errorStatsHtml(): string {
   const counts = new Map<string, number>();
   S.errors.forEach((e) => counts.set(e.type, (counts.get(e.type) ?? 0) + 1));
   const total = S.errors.length;
   const rows = ERR_TYPES.map((t) => { const c = counts.get(t) ?? 0; return `<div class="r"><span>${esc(t)}</span><span class="small muted">${c}</span><span>${total ? Math.round((c / total) * 100) : 0}%</span></div>`; }).join('');
   const side = (c: 'red' | 'black') => { const a = S.games.filter((x) => x.side === c); const w = a.filter((x) => x.result === 'win').length; return `${c === 'red' ? 'Đỏ' : 'Đen'}: ${a.length} ván, thắng ${a.length ? Math.round((w / a.length) * 100) : 0}%`; };
-  return `<div class="card"><h2>Lỗi và kết quả</h2><div class="dist">${rows}</div><p class="small muted">${total ? '' : 'Chưa có lỗi nào được ghi. '}Theo bên cầm: ${side('red')} · ${side('black')}</p></div>`;
+  return `<div class="card"><h2>Lỗi và kết quả</h2><div class="dist">${rows}</div><p class="small muted">${total ? '' : 'Chưa có lỗi nào được ghi. '}Theo bên cầm: ${side('red')} · ${side('black')}</p>
+    <h3>Số lỗi mỗi tuần</h3>${errorsByWeekChart()}
+    <h3>Tỉ lệ đúng theo tuần, từng loại bài</h3>${accuracyByKindChart()}</div>`;
 }
 
 function viewProgress(): string {
