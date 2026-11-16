@@ -81,3 +81,8 @@ Engine (~41 MB gồm 2 mạng NNUE) **không** nằm trong git; `scripts/fetch-e
 
 ## Giấy phép
 Mã nguồn dự án: **AGPL-3.0-or-later** (xem `LICENSE`), vì dùng `pikafish-js` và `@pikafish-js/rules` (AGPL-3.0-or-later). Xem `NOTICE` về Pikafish (GPL-3.0) và các mạng NNUE.
+
+
+### Ký hiệu viết tắt tiếng Việt khi nhập ván
+
+P=Pháo, M=Mã, X=Xe, T=Tượng, S=Sĩ, B=Tốt, Tg=Tướng; `.` = tiến, `/` = thoái, `-` hoặc `=` = bình. Ví dụ: `P8-5`, `M2.3`, `T1/3`. Nước gõ nhầm sẽ được báo đúng số thứ tự nước.
