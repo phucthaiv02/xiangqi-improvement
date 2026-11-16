@@ -433,6 +433,15 @@ function spark(vals: { date: string; v: number }[]): string {
   return `<svg class="spark" viewBox="0 0 ${w} ${h}"><line class="gl" x1="${pad}" y1="${h - pad}" x2="${w - pad}" y2="${h - pad}"/><polyline class="ln" points="${d}"/>${dots}</svg>`;
 }
 
+function errorStatsHtml(): string {
+  const counts = new Map<string, number>();
+  S.errors.forEach((e) => counts.set(e.type, (counts.get(e.type) ?? 0) + 1));
+  const total = S.errors.length;
+  const rows = ERR_TYPES.map((t) => { const c = counts.get(t) ?? 0; return `<div class="r"><span>${esc(t)}</span><span class="small muted">${c}</span><span>${total ? Math.round((c / total) * 100) : 0}%</span></div>`; }).join('');
+  const side = (c: 'red' | 'black') => { const a = S.games.filter((x) => x.side === c); const w = a.filter((x) => x.result === 'win').length; return `${c === 'red' ? 'Đỏ' : 'Đen'}: ${a.length} ván, thắng ${a.length ? Math.round((w / a.length) * 100) : 0}%`; };
+  return `<div class="card"><h2>Lỗi và kết quả</h2><div class="dist">${rows}</div><p class="small muted">${total ? '' : 'Chưa có lỗi nào được ghi. '}Theo bên cầm: ${side('red')} · ${side('black')}</p></div>`;
+}
+
 function viewProgress(): string {
   const g = S.games, n = g.length, w = g.filter((x) => x.result === 'win').length, d = g.filter((x) => x.result === 'draw').length;
   // Tỉ lệ đúng theo ngày được tự tính từ lịch sử giải ở tab Luyện tập (bài xem đáp án không tính).
@@ -447,7 +456,8 @@ function viewProgress(): string {
   const games = g.map((x) => `<div class="row"><div class="main"><span class="pill ${x.result}">${{ win: 'Thắng', loss: 'Thua', draw: 'Hòa' }[x.result]}</span> <span class="meta">${fmt(x.date)} · cầm ${x.side === 'red' ? 'Đỏ' : 'Đen'}</span><div class="small">${esc(x.note)}</div></div><div class="acts"><button class="btn ghost sm" data-act="rev" data-id="${x.id}">Xem lại</button><button class="btn plain sm" data-act="delgame" data-id="${x.id}">Xóa</button></div></div>`).join('');
   const fin = FINAL.map((t, i) => `<li class="task ${S.finalTest[i] ? 'done' : ''}"><label><input type="checkbox" data-act="final" data-i="${i}" ${S.finalTest[i] ? 'checked' : ''}><span>${esc(t)}</span></label></li>`).join('');
   return `<div class="tiles"><div class="tile"><div class="k">Ván</div><div class="v">${n}</div></div><div class="tile"><div class="k">Tỉ lệ thắng</div><div class="v">${n ? Math.round((w / n) * 100) : 0}<small>%</small></div></div><div class="tile"><div class="k">Hòa</div><div class="v">${d}</div></div></div>
-  <div class="two">${metric('puzzle', 'Bài chiếu bí đúng (%)')}${metric('elo', 'Elo / điểm xếp hạng')}</div>
+  <div class="two">${metric('puzzle', 'Bài luyện tập đúng (%)')}${metric('elo', 'Elo / điểm xếp hạng')}</div>
+  ${errorStatsHtml()}
   ${placementCompareHtml()}
   <div class="card"><h2>Bài kiểm tra cuối khóa (tuần 12)</h2><ul class="tasks">${fin}</ul><div class="nav"><button class="btn ghost" data-act="pl-begin" data-kind="final">Làm bài kiểm tra cuối khóa (cùng định dạng đầu vào)</button></div></div>
   ${practiceStatsHtml()}

@@ -300,6 +300,8 @@ export function practiceStatsHtml(): string {
   return `<div class="card"><h2>Luyện tập</h2>
     <div class="tiles"><div class="tile"><div class="k">Kho bài</div><div class="v">${S.puzzles.length}</div></div><div class="tile"><div class="k">Lần giải</div><div class="v">${pa.length}</div></div><div class="tile"><div class="k">Tỉ lệ đúng</div><div class="v">${pct(pa)}</div></div></div>
     <div class="dist">${rows}</div>
+    <h3>Theo loại bài</h3>
+    <div class="dist">${([['mate', 'Chiếu bí'], ['tactic', 'Chiến thuật'], ['loss', 'Từ nước sai trong ván của bạn']] as const).map(([k, t]) => { const a = pa.filter((x) => byId.get(x.pid)?.kind === k); return `<div class="r"><span>${t}</span><span class="small muted">${S.puzzles.filter((p) => p.kind === k).length} bài</span><span>${a.length} lần · đúng ${pct(a)} · TB ${avg(a)}</span></div>`; }).join('')}</div>
     <p class="small muted">${src('game', 'Từ ván của bạn')} · ${src('gen', 'Tự sinh')} · Tàn cuộc: ${ea.length} ván, đạt mục tiêu ${pct(ea)}</p></div>`;
 }
 
